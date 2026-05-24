@@ -101,6 +101,78 @@ def _cmd_build_scene(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_plan(args: argparse.Namespace) -> int:
+    from nav_robot.planners import get_planner
+
+    grid = GridMap.load(args.map)
+    kwargs = {"diagonal": args.diagonal}
+    if args.algo == "astar":
+        kwargs["heuristic"] = args.heuristic
+    if args.algo == "rrt":
+        kwargs = {"max_iter": args.rrt_iter, "step_size": args.rrt_step,
+                  "goal_bias": args.rrt_bias, "star": args.rrt_star,
+                  "seed": args.rrt_seed}
+
+    planner = get_planner(args.algo, **kwargs)
+    print(f"[..] Planificare cu {planner.name} pe {args.map} ...")
+    res = planner.plan(grid, grid.start, grid.goal)
+
+    if res.path is None:
+        print(f"[FAIL] {planner.name}: NICIO SOLUTIE "
+              f"(expandate={res.expanded_nodes}, timp={res.elapsed_s*1000:.2f} ms).")
+        return 1
+
+    meters = res.cost * grid.cell_size
+    print(f"[OK] {planner.name}: {len(res.path)} celule, "
+          f"cost={res.cost:.3f} ({meters:.2f} m), "
+          f"expandate={res.expanded_nodes}, "
+          f"timp={res.elapsed_s*1000:.2f} ms")
+
+    if args.plot:
+        from nav_robot.map.visualization import plot_map, plot_path, save_figure
+        fig, ax = plt.subplots(figsize=(7, 7))
+        plot_map(grid, ax=ax)
+        plot_path(grid, res.path, ax=ax, label=planner.name)
+        out = save_figure(fig, OUTPUTS_DIR / f"path_{planner.name}_seed{grid.seed}.png")
+        plt.close(fig)
+        print(f"[OK] Plot salvat: {out}")
+    return 0
+
+
+def _cmd_compare(args: argparse.Namespace) -> int:
+    from nav_robot.planners import PLANNER_NAMES, get_planner
+
+    grid = GridMap.load(args.map)
+    print(f"[..] Comparare pe {args.map} (start={grid.start}, goal={grid.goal}) ...")
+    results = []
+    for name in PLANNER_NAMES:
+        kw = {} if name == "rrt" else {"diagonal": args.diagonal}
+        if name == "rrt":
+            kw = {"max_iter": 5000, "seed": 42}
+        if name == "astar":
+            kw["heuristic"] = args.heuristic
+        p = get_planner(name, **kw)
+        r = p.plan(grid, grid.start, grid.goal)
+        results.append((name, r))
+        if r.path is None:
+            print(f"  {name:<10}: NICIO SOLUTIE  (exp={r.expanded_nodes})")
+        else:
+            print(f"  {name:<10}: {len(r.path):>4} celule, cost={r.cost:>7.3f}, "
+                  f"exp={r.expanded_nodes:>5}, t={r.elapsed_s*1000:>7.2f} ms")
+
+    if args.plot:
+        from nav_robot.map.visualization import plot_map, plot_path, save_figure
+        fig, ax = plt.subplots(figsize=(8, 8))
+        plot_map(grid, ax=ax)
+        for (name, r), col in zip(results, ["#3498db", "#e67e22", "#9b59b6", "#27ae60"]):
+            if r.path:
+                plot_path(grid, r.path, ax=ax, color=col, label=name)
+        out = save_figure(fig, OUTPUTS_DIR / f"compare_seed{grid.seed}.png")
+        plt.close(fig)
+        print(f"[OK] Plot comparativ: {out}")
+    return 0
+
+
 def _cmd_gui(_args: argparse.Namespace) -> int:
     try:
         from nav_robot.gui.app import main as gui_main
@@ -168,11 +240,36 @@ def build_parser() -> argparse.ArgumentParser:
     p_gui = sub.add_parser("gui", help="Lanseaza interfata grafica PySide6.")
     p_gui.set_defaults(func=_cmd_gui)
 
-    # --- stub-uri ---
+    # --- plan ---
+    p_pl = sub.add_parser("plan", help="Planifica un traseu cu un algoritm specific.")
+    p_pl.add_argument("--map", required=True, help="Cale JSON de harta.")
+    p_pl.add_argument("--algo", default="astar",
+                      choices=["astar", "dijkstra", "bfs", "rrt"])
+    p_pl.add_argument("--heuristic", default="manhattan",
+                      choices=["manhattan", "euclidean", "octile"])
+    p_pl.add_argument("--diagonal", action="store_true",
+                      help="Foloseste 8-connectivity.")
+    p_pl.add_argument("--rrt-iter", type=int, default=5000)
+    p_pl.add_argument("--rrt-step", type=float, default=3.0)
+    p_pl.add_argument("--rrt-bias", type=float, default=0.1)
+    p_pl.add_argument("--rrt-star", action="store_true")
+    p_pl.add_argument("--rrt-seed", type=int, default=42)
+    p_pl.add_argument("--plot", action="store_true",
+                      help="Salveaza PNG cu traseul peste harta.")
+    p_pl.set_defaults(func=_cmd_plan)
+
+    # --- compare ---
+    p_cmp = sub.add_parser("compare", help="Compara A*, Dijkstra, BFS, RRT pe aceeasi harta.")
+    p_cmp.add_argument("--map", required=True)
+    p_cmp.add_argument("--heuristic", default="manhattan",
+                       choices=["manhattan", "euclidean", "octile"])
+    p_cmp.add_argument("--diagonal", action="store_true")
+    p_cmp.add_argument("--plot", action="store_true")
+    p_cmp.set_defaults(func=_cmd_compare)
+
+    # --- stub-uri ramase ---
     for name, helptxt in [
-        ("plan", "[STUB] Planifica un traseu pe o harta salvata (faza 2)."),
         ("run", "[STUB] Ruleaza simularea CoppeliaSim cu un planner (faza 3)."),
-        ("compare", "[STUB] Compara algoritmi de planificare (faza 5)."),
     ]:
         p = sub.add_parser(name, help=helptxt)
         p.set_defaults(func=lambda _a, _n=name: _cmd_not_implemented(_n))

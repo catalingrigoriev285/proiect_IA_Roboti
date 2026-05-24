@@ -5,34 +5,43 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from PySide6.QtCore import QObject, Qt, Signal, Slot
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtGui import QFont, QTextCursor
 from PySide6.QtWidgets import (
     QHBoxLayout, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget,
 )
 
 
-class _LogBridge(QObject):
-    """Bridge thread-safe pentru a posta linii in QPlainTextEdit din alte thread-uri."""
-    new_line = Signal(str)
+class _SignalEmitterHandler(logging.Handler):
+    """Logging handler care emite linia formatata pe semnalul widget-ului.
 
+    Conexiunea este `QueuedConnection`, deci postarea poate veni din orice thread
+    iar slotul este invocat in thread-ul de UI (cel care detine widget-ul).
+    """
 
-_BRIDGE = _LogBridge()
-
-
-class _QtSignalHandler(logging.Handler):
-    """Logging handler care emite linii catre QPlainTextEdit prin signal."""
+    def __init__(self, target_widget: "LogWidget") -> None:
+        super().__init__()
+        self._target = target_widget
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
             msg = self.format(record)
-            _BRIDGE.new_line.emit(msg)
         except Exception:
             self.handleError(record)
+            return
+        # signal.emit este thread-safe; cu QueuedConnection apelarea slotului
+        # este re-postata in thread-ul widget-ului.
+        try:
+            self._target.line_logged.emit(msg)
+        except RuntimeError:
+            # Widget-ul a fost distrus inainte ca handler-ul sa fie scos.
+            pass
 
 
 class LogWidget(QWidget):
     """Panou de log cu butoane Clear / Copy."""
+
+    line_logged = Signal(str)
 
     LEVEL_COLOR = {
         "DEBUG": "#888888",
@@ -42,11 +51,16 @@ class LogWidget(QWidget):
         "CRITICAL": "#ff3030",
     }
 
+    _handlers_by_widget: dict[int, _SignalEmitterHandler] = {}
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._build_ui()
+        # IMPORTANT: queued connection -> slotul ruleaza in thread-ul widget-ului
+        self.line_logged.connect(self._append, Qt.ConnectionType.QueuedConnection)
         self._install_handler()
 
+    # ------------------------------------------------------------------
     def _build_ui(self) -> None:
         self.text = QPlainTextEdit(self)
         self.text.setReadOnly(True)
@@ -76,19 +90,23 @@ class LogWidget(QWidget):
         layout.addWidget(self.text)
 
     def _install_handler(self) -> None:
-        _BRIDGE.new_line.connect(self._append, Qt.ConnectionType.QueuedConnection)
+        # Evitam dublarea daca widget-ul e recreat
         root = logging.getLogger()
-        # Evitam dublarea daca widget-ul e re-creat
-        if not any(isinstance(h, _QtSignalHandler) for h in root.handlers):
-            handler = _QtSignalHandler()
-            handler.setFormatter(logging.Formatter(
-                fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-                datefmt="%H:%M:%S",
-            ))
-            handler.setLevel(logging.DEBUG)
-            root.addHandler(handler)
+        wid = id(self)
+        if wid in LogWidget._handlers_by_widget:
+            return
+        handler = _SignalEmitterHandler(self)
+        handler.setFormatter(logging.Formatter(
+            fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%H:%M:%S",
+        ))
+        handler.setLevel(logging.DEBUG)
+        root.addHandler(handler)
+        if root.level > logging.INFO or root.level == 0:
             root.setLevel(logging.INFO)
+        LogWidget._handlers_by_widget[wid] = handler
 
+    # ------------------------------------------------------------------
     @Slot(str)
     def _append(self, line: str) -> None:
         level = self._extract_level(line)
@@ -100,7 +118,6 @@ class LogWidget(QWidget):
 
     @staticmethod
     def _extract_level(line: str) -> str:
-        # formatul este "HH:MM:SS [LEVEL] ..."
         try:
             start = line.index("[")
             end = line.index("]", start)
@@ -112,7 +129,13 @@ class LogWidget(QWidget):
         from PySide6.QtWidgets import QApplication
         QApplication.clipboard().setText(self.text.toPlainText())
 
-    # API direct (pentru cazuri unde nu vrem logger): plain text colorat ca INFO
     def write_line(self, text: str) -> None:
         line = f"{datetime.now().strftime('%H:%M:%S')} [INFO] gui: {text}"
-        _BRIDGE.new_line.emit(line)
+        self.line_logged.emit(line)
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        # La distrugere, scoate handler-ul ca sa nu emita catre obiect zombie
+        handler = LogWidget._handlers_by_widget.pop(id(self), None)
+        if handler is not None:
+            logging.getLogger().removeHandler(handler)
+        super().closeEvent(event)

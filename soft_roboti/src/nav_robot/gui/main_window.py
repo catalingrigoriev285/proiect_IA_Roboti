@@ -17,17 +17,15 @@ log = logging.getLogger("gui.main")
 class MainWindow(QMainWindow):
     """Layout:
 
-        +-----+------------------------------------+
-        | T   |  Continut tab (configurari)        |
-        | A   |                                    |
-        | B   |                                    |
-        | S   |                                    |
-        +-----+------------------------------------+
-        |   Panou log (intreaga latime, jos)       |
-        +-----+------------------------------------+
-
-    Tab-urile sunt afisate cu textul orientat vertical pe partea stanga
-    (`QTabWidget.West`).
+        +------+------+----------------------------+
+        | Tab1 | Tab2 |                            |
+        +------+------+----------------------------+
+        |                                          |
+        |        Continut tab (configurari)        |
+        |                                          |
+        +------------------------------------------+
+        |     Panou log (intreaga latime, jos)     |
+        +------------------------------------------+
     """
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -39,8 +37,12 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         # --- Tab-uri ---
         self.tabs = QTabWidget()
-        self.tabs.setTabPosition(QTabWidget.TabPosition.West)
+        self.tabs.setTabPosition(QTabWidget.TabPosition.North)
         self.tabs.setDocumentMode(True)
+        self.tabs.setStyleSheet(
+            "QTabBar::tab { padding: 8px 18px; font-weight: 500; }"
+            "QTabBar::tab:selected { background:#3498db; color:white; }"
+        )
 
         self.tab_map = MapTab(self)
         self.tab_algo = AlgorithmTab(map_tab=self.tab_map, parent=self)
