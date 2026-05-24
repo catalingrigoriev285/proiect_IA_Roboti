@@ -9,8 +9,8 @@ from matplotlib.figure import Figure
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
-    QGroupBox, QLabel, QMessageBox, QPushButton, QSpinBox, QSplitter,
-    QVBoxLayout, QWidget,
+    QGroupBox, QLabel, QMessageBox, QPushButton, QScrollArea, QSpinBox,
+    QSplitter, QVBoxLayout, QWidget,
 )
 
 from nav_robot.gui.worker import run_async
@@ -38,7 +38,7 @@ class GASubTab(QWidget):
         self.progress_signal.connect(self._on_progress, Qt.ConnectionType.QueuedConnection)
 
     def _build_ui(self) -> None:
-        left = self._build_config()
+        left = self._wrap_scroll(self._build_config())
         right = self._build_stats()
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
         splitter.addWidget(left); splitter.addWidget(right)
@@ -47,6 +47,14 @@ class GASubTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)
         layout.addWidget(splitter)
+
+    def _wrap_scroll(self, widget: QWidget) -> QScrollArea:
+        scroll = QScrollArea()
+        scroll.setWidget(widget)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        return scroll
 
     def _build_config(self) -> QWidget:
         wrap = QFrame()
@@ -180,8 +188,8 @@ class GASubTab(QWidget):
             from nav_robot.coppelia.robot import PioneerP3DX
             from nav_robot.rl.deploy import run_policy_in_coppelia
             _, sim = connect()
-            robot = PioneerP3DX(sim)
             ensure_simulation_running(sim)
+            robot = PioneerP3DX(sim)
             return run_policy_in_coppelia(
                 sim, robot, grid, policy, diagonal=diagonal,
                 should_stop=lambda: self._stop_requested,

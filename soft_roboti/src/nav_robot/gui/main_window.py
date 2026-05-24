@@ -32,6 +32,8 @@ class MainWindow(QMainWindow):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("nav_robot - Planificare traseu Pioneer P3-DX")
+        self.resize(1280, 800)
+        self.setMinimumSize(800, 500)
         self._build_ui()
         log.info("GUI pornit. Selecteaza un tab pentru a incepe.")
 

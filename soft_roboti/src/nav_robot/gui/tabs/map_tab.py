@@ -11,8 +11,8 @@ from matplotlib.figure import Figure
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame, QGroupBox,
-    QHBoxLayout, QLabel, QMessageBox, QPushButton, QSpinBox, QSplitter,
-    QVBoxLayout, QWidget,
+    QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QSpinBox,
+    QSplitter, QVBoxLayout, QWidget,
 )
 
 from nav_robot.config import (
@@ -40,8 +40,8 @@ class MapTab(QWidget):
     # UI
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
-        # Stanga: formular configurare
-        form_box = self._build_form()
+        # Stanga: formular configurare (wrap in scroll pentru ferestre mici)
+        form_box = self._wrap_scroll(self._build_form())
         # Dreapta: preview matplotlib
         preview_box = self._build_preview()
 
@@ -119,6 +119,16 @@ class MapTab(QWidget):
         v.addWidget(self.lbl_status)
         v.addStretch(1)
         return wrap
+
+    def _wrap_scroll(self, widget: QWidget) -> QScrollArea:
+        """Pune `widget` intr-un QScrollArea cu scroll vertical, ca sa nu
+        blocheze resize-ul ferestrei principale."""
+        scroll = QScrollArea()
+        scroll.setWidget(widget)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        return scroll
 
     def _build_preview(self) -> QWidget:
         wrap = QFrame()

@@ -37,32 +37,146 @@ class PioneerP3DX:
             self._disable_builtin_scripts()
 
     def _disable_builtin_scripts(self) -> None:
-        """Dezactiveaza child script-ul builtin (evita-obstacole) al modelului Pioneer.
+        """Dezactiveaza orice script atasat robotului (child / simulation / customization).
 
-        Daca scriptul ramane activ, va suprascrie comenzile noastre la fiecare pas
-        de simulare si robotul fie nu se misca dupa planul nostru, fie are
-        comportament neasteptat (rotire, oprire la perete).
+        Modelul oficial Pioneer P3-DX vine cu un script de evitare-obstacole care
+        suprascrie `setJointTargetVelocity` la fiecare pas. Daca ramane activ,
+        robotul "ignora" comenzile noastre si poate sa stea pe loc (cand simte
+        un obstacol langa) sau sa se roteasca singur.
+
+        CoppeliaSim 4.10 a renuntat la `setScriptInt32Param` (deprecated, no-op).
+        Folosim noul API de proprietati `sim.setBoolProperty(script_h, "enabled", False)`
+        cu verificare prin `getBoolProperty`, plus fallback la `removeScript` si la
+        API-ul legacy pentru versiuni vechi de CoppeliaSim.
         """
         sim = self.sim
-        # Incercam toate tipurile de script atasate robotului (child + customization)
-        for script_type_attr in ("scripttype_simulation", "scripttype_childscript",
-                                  "scripttype_customizationscript"):
-            stype = getattr(sim, script_type_attr, None)
-            if stype is None:
-                continue
+        # Construieste lista de (nume, valoare) pentru fiecare tip de script cunoscut.
+        script_types: list[tuple[str, int]] = []
+        for name in ("scripttype_childscript", "scripttype_simulation",
+                     "scripttype_simulationscript", "scripttype_customizationscript",
+                     "scripttype_mainscript"):
+            v = getattr(sim, name, None)
+            if isinstance(v, int):
+                script_types.append((name, v))
+
+        # Aduna handle-urile din ierarhia robotului (root + descendenti)
+        targets = self._collect_subtree(self.robot)
+        log.info("Caut script-uri pe %d obiecte din ierarhia robotului ...",
+                 len(targets))
+
+        disabled_any = False
+        for obj_h in targets:
+            for name, stype in script_types:
+                try:
+                    script_h = sim.getScript(stype, obj_h)
+                except Exception:
+                    script_h = -1
+                if script_h is None or script_h == -1:
+                    continue
+                if self._try_disable_script(script_h, obj_h, name):
+                    disabled_any = True
+
+        if not disabled_any:
+            log.warning(
+                "Niciun script dezactivat automat pe ierarhia robotului. "
+                "Daca robotul ignora comenzile: in CoppeliaSim, dublu-click pe "
+                "iconita scriptului langa PioneerP3DX in Scene Hierarchy -> "
+                "in editor, meniul 'Scripts' -> uncheck 'Enabled', salveaza scena (Ctrl+S)."
+            )
+
+    def _try_disable_script(self, script_h: int, obj_h: int,
+                             type_name: str) -> bool:
+        """Incearca sa dezactiveze un script handle prin lant de metode.
+
+        Returneaza True daca o metoda a reusit (sau pare ca a reusit).
+        """
+        sim = self.sim
+
+        # 1. API nou (CoppeliaSim 4.6+ / 4.10): properties
+        try:
+            sim.setBoolProperty(script_h, "enabled", False)
+            # Verifica prin citire
             try:
-                script_handle = sim.getScript(stype, self.robot)
-            except Exception:
-                continue
-            if script_handle is None or script_handle == -1:
-                continue
-            try:
-                sim.setScriptInt32Param(script_handle,
-                                        sim.scriptintparam_enabled, 0)
-                log.info("Dezactivat script %s pe %s (handle=%d).",
-                         script_type_attr, self.base_path, script_handle)
+                still_enabled = sim.getBoolProperty(script_h, "enabled")
+                if not still_enabled:
+                    log.info("Script %s DEZACTIVAT via setBoolProperty pe obj=%d "
+                             "(script_h=%d).", type_name, obj_h, script_h)
+                    return True
+                log.debug("setBoolProperty('enabled', False) pe obj=%d a rulat dar "
+                          "flag-ul a ramas True.", obj_h)
             except Exception as e:
-                log.debug("Nu am putut dezactiva %s: %s", script_type_attr, e)
+                # Nu putem verifica - presupunem ca a mers
+                log.info("Script %s DEZACTIVAT via setBoolProperty (neverificat) "
+                         "pe obj=%d (script_h=%d).", type_name, obj_h, script_h)
+                log.debug("getBoolProperty esuat: %s", e)
+                return True
+        except Exception as e:
+            log.debug("setBoolProperty esuat pe obj=%d: %s", obj_h, e)
+
+        # 2. Fallback: removeScript (elimina complet)
+        try:
+            sim.removeScript(script_h)
+            log.info("Script %s REMOVE pe obj=%d (script_h=%d).",
+                     type_name, obj_h, script_h)
+            return True
+        except Exception as e:
+            log.debug("removeScript esuat pe obj=%d: %s", obj_h, e)
+
+        # 3. Fallback legacy (CoppeliaSim < 4.6)
+        try:
+            sim.setScriptInt32Param(script_h, sim.scriptintparam_enabled, 0)
+            log.info("Script %s dezactivat via API legacy pe obj=%d (script_h=%d).",
+                     type_name, obj_h, script_h)
+            return True
+        except Exception as e:
+            log.debug("setScriptInt32Param esuat pe obj=%d: %s", obj_h, e)
+
+        return False
+
+        # In plus, asiguram explicit ca motoarele sunt in mod velocity-control
+        for motor_name, motor in (("left", self.left_motor),
+                                   ("right", self.right_motor)):
+            for param_name in ("jointintparam_motor_enabled",
+                                "jointintparam_velocity_lock"):
+                pid = getattr(sim, param_name, None)
+                if pid is None:
+                    continue
+                try:
+                    sim.setObjectInt32Param(motor, pid, 1)
+                except Exception:
+                    pass
+            # Forteaza mod dinamic = velocity control
+            for ctrl_attr, val_attr in [
+                ("jointintparam_dynctrlmode", "jointdynctrl_velocity"),
+            ]:
+                pid = getattr(sim, ctrl_attr, None)
+                val = getattr(sim, val_attr, None)
+                if pid is None or val is None:
+                    continue
+                try:
+                    sim.setObjectInt32Param(motor, pid, val)
+                except Exception:
+                    pass
+
+    def _collect_subtree(self, root_handle: int) -> list[int]:
+        """Returneaza root + toti descendentii (DFS) - pentru cautare scripturi."""
+        sim = self.sim
+        out: list[int] = []
+        stack = [root_handle]
+        while stack:
+            h = stack.pop()
+            out.append(h)
+            idx = 0
+            while True:
+                try:
+                    child = sim.getObjectChild(h, idx)
+                except Exception:
+                    break
+                if child == -1:
+                    break
+                stack.append(child)
+                idx += 1
+        return out
 
     # ------------------------------------------------------------------
     # Motoare

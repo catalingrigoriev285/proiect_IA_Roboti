@@ -10,8 +10,8 @@ from matplotlib.figure import Figure
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QButtonGroup, QComboBox, QDoubleSpinBox, QFormLayout, QFrame, QGroupBox,
-    QLabel, QMessageBox, QPushButton, QRadioButton, QSpinBox, QSplitter,
-    QTextEdit, QVBoxLayout, QWidget,
+    QLabel, QMessageBox, QPushButton, QRadioButton, QScrollArea, QSpinBox,
+    QSplitter, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from nav_robot.gui.worker import run_async
@@ -49,7 +49,7 @@ class AlgorithmTab(QWidget):
 
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
-        config = self._build_config()
+        config = self._wrap_scroll(self._build_config())
         info = self._build_info()
 
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
@@ -62,6 +62,14 @@ class AlgorithmTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.addWidget(splitter)
+
+    def _wrap_scroll(self, widget: QWidget) -> QScrollArea:
+        scroll = QScrollArea()
+        scroll.setWidget(widget)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        return scroll
 
     def _build_config(self) -> QWidget:
         wrap = QFrame()
@@ -292,11 +300,14 @@ class AlgorithmTab(QWidget):
             from nav_robot.coppelia.client import connect, ensure_simulation_running
             from nav_robot.coppelia.robot import PioneerP3DX
             _, sim = connect()
-            robot = PioneerP3DX(sim)
+            # IMPORTANT: pornim simularea PRIMA, apoi instantiem robotul, ca sa
+            # putem dezactiva scriptul builtin DUPA ce a fost initializat
+            # (altfel se reactiveaza la startSimulation).
             if not ensure_simulation_running(sim):
                 log.warning("Simularea nu a ajuns in stare 'running' in 3s.")
             else:
                 log.info("Simularea CoppeliaSim ruleaza.")
+            robot = PioneerP3DX(sim)
 
             waypoints = path_cells_to_world(grid, path)
 
@@ -360,9 +371,9 @@ class AlgorithmTab(QWidget):
             from nav_robot.coppelia.robot import PioneerP3DX
             from nav_robot.reactive.bug2 import bug2_navigate
             _, sim = connect()
-            robot = PioneerP3DX(sim)
             if not ensure_simulation_running(sim):
                 log.warning("Simularea nu a ajuns in stare 'running' in 3s.")
+            robot = PioneerP3DX(sim)
             goal_world = grid.to_world(grid.goal)
 
             def progress(state, pose, dist):

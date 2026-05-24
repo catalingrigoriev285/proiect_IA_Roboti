@@ -10,7 +10,7 @@ from matplotlib.figure import Figure
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFormLayout, QFrame, QGroupBox, QLabel, QMessageBox, QPushButton,
-    QSpinBox, QSplitter, QVBoxLayout, QWidget,
+    QScrollArea, QSpinBox, QSplitter, QVBoxLayout, QWidget,
 )
 
 from nav_robot.gui.worker import run_async
@@ -34,7 +34,7 @@ class CompareSubTab(QWidget):
         self._build_ui()
 
     def _build_ui(self) -> None:
-        left = self._build_config()
+        left = self._wrap_scroll(self._build_config())
         right = self._build_plot()
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
         splitter.addWidget(left); splitter.addWidget(right)
@@ -42,6 +42,14 @@ class CompareSubTab(QWidget):
         splitter.setSizes([280, 700])
         layout = QVBoxLayout(self); layout.setContentsMargins(6, 6, 6, 6)
         layout.addWidget(splitter)
+
+    def _wrap_scroll(self, widget: QWidget) -> QScrollArea:
+        scroll = QScrollArea()
+        scroll.setWidget(widget)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        return scroll
 
     def _build_config(self) -> QWidget:
         wrap = QFrame()
