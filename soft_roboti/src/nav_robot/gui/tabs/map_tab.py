@@ -10,9 +10,9 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame, QGroupBox,
-    QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QSpinBox,
-    QSplitter, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame,
+    QGroupBox, QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea,
+    QSpinBox, QSplitter, QVBoxLayout, QWidget,
 )
 
 from nav_robot.config import (
@@ -87,9 +87,16 @@ class MapTab(QWidget):
         self.sp_obs_h.setRange(0.05, 5.0); self.sp_obs_h.setSingleStep(0.1); self.sp_obs_h.setValue(0.5); self.sp_obs_h.setSuffix(" m")
         self.cb_floor = QCheckBox("Adauga floor (recomandat)"); self.cb_floor.setChecked(True)
         self.cb_place_robot = QCheckBox("Muta robotul in celula start"); self.cb_place_robot.setChecked(True)
+        self.cb_realistic = QCheckBox("Obstacole realiste (modele 3D din ModelBrowser)")
+        self.cb_realistic.setChecked(False)
+        self.cb_theme = QComboBox(); self.cb_theme.addItems(["mobilier", "depozit", "strada", "mixt"])
+        self.sp_realistic_seed = QSpinBox(); self.sp_realistic_seed.setRange(0, 1_000_000); self.sp_realistic_seed.setValue(7)
         f2.addRow("Inaltime obstacole:", self.sp_obs_h)
         f2.addRow("", self.cb_floor)
         f2.addRow("", self.cb_place_robot)
+        f2.addRow("", self.cb_realistic)
+        f2.addRow("Tema obiecte:", self.cb_theme)
+        f2.addRow("Seed plasare:", self.sp_realistic_seed)
 
         # --- Butoane ---
         gb_actions = QGroupBox("Actiuni")
@@ -221,27 +228,39 @@ class MapTab(QWidget):
         place_robot = self.cb_place_robot.isChecked()
         with_floor = self.cb_floor.isChecked()
         obs_h = self.sp_obs_h.value()
-        log.info("Conectare la CoppeliaSim si construire scena ...")
+        realistic = self.cb_realistic.isChecked()
+        theme = self.cb_theme.currentText()
+        rseed = self.sp_realistic_seed.value()
+        log.info("Conectare la CoppeliaSim si construire scena %s ...",
+                 f"REALISTA (tema={theme})" if realistic else "(cuboizi)")
         self.btn_build_scene.setEnabled(False)
 
         def task():
             from nav_robot.coppelia.client import connect
             from nav_robot.coppelia.scene_builder import (
-                build_obstacles_from_map, place_robot_at_start,
+                build_obstacles_from_map, build_realistic_obstacles_from_map,
+                place_robot_at_start,
             )
             _, sim = connect()
-            parent, handles = build_obstacles_from_map(
-                sim, grid, height_m=obs_h, with_floor=with_floor,
-            )
+            if realistic:
+                parent, handles = build_realistic_obstacles_from_map(
+                    sim, grid, theme=theme, with_floor=with_floor,
+                    height_m=obs_h, seed=rseed,
+                )
+            else:
+                parent, handles = build_obstacles_from_map(
+                    sim, grid, height_m=obs_h, with_floor=with_floor,
+                )
             if place_robot:
                 place_robot_at_start(sim, grid)
-            return (parent, len(handles), place_robot, with_floor)
+            return (parent, len(handles), place_robot, with_floor, realistic)
 
         def done(result):
             self.btn_build_scene.setEnabled(True)
-            parent, n, placed, floor = result
+            parent, n, placed, floor, realistic_flag = result
             extra = " + floor" if floor else ""
-            msg = f"Plasati {n} obiecte{extra} (parent handle={parent})."
+            kind = " realiste" if realistic_flag else ""
+            msg = f"Plasate {n} obiecte{kind}{extra} (parent handle={parent})."
             if placed:
                 msg += f" Robot mutat la {grid.start}."
             log.info(msg)
