@@ -62,7 +62,7 @@ def plot_map(grid: GridMap, ax: Axes | None = None, title: str | None = None) ->
     ax.set_aspect("equal")
     ax.set_xlim(0, grid.width)
     ax.set_ylim(0, grid.height)
-    ax.legend(loc="upper right", framealpha=0.9)
+    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), framealpha=0.9)
     return ax
 
 
@@ -89,7 +89,7 @@ def plot_path(grid: GridMap, path: Sequence[Cell], ax: Axes | None = None,
     ys = [c[1] + 0.5 for c in path]
     ax.plot(xs, ys, color=color, linewidth=2.5, marker="o", markersize=4,
             label=label, zorder=4)
-    ax.legend(loc="upper right", framealpha=0.9)
+    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0), framealpha=0.9)
     return ax
 
 
