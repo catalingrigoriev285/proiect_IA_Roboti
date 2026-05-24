@@ -38,6 +38,8 @@ def run_path_in_coppelia(
     timeout_s: float = 120.0,
     v_lin: float = 0.4,
     tolerance_m: float = 0.15,
+    stuck_window_s: float = 2.0,
+    stuck_distance_m: float = 0.05,
     should_stop: Callable[[], bool] | None = None,
     on_progress: Callable[[int, int, tuple[float, float, float]], None] | None = None,
 ) -> RunReport:
@@ -68,6 +70,13 @@ def run_path_in_coppelia(
     t_start = time.perf_counter()
     last_progress = t_start
 
+    # Stuck-detection: daca robotul nu s-a mutat > stuck_distance in stuck_window
+    # incercam recovery (back-up scurt + skip waypoint).
+    sx0, sy0, _ = robot.pose()
+    stuck_anchor_pose = (sx0, sy0)
+    stuck_anchor_t = t_start
+    recovery_until = 0.0   # timpul pana cand suntem in modul recovery (back-up)
+
     try:
         while not follower.is_done():
             now = time.perf_counter()
@@ -88,8 +97,28 @@ def run_path_in_coppelia(
                 )
 
             x, y, yaw = robot.pose()
-            v_l, v_r = follower.step(x, y, yaw)
-            robot.set_velocity(v_l, v_r)
+
+            # --- Stuck detection ---
+            d_moved = ((x - stuck_anchor_pose[0]) ** 2 +
+                       (y - stuck_anchor_pose[1]) ** 2) ** 0.5
+            if d_moved > stuck_distance_m:
+                stuck_anchor_pose = (x, y)
+                stuck_anchor_t = now
+            elif (now - stuck_anchor_t) > stuck_window_s and now > recovery_until:
+                # Recovery: back-up 0.5s, apoi skip waypoint curent
+                log.warning("Stuck detectat (%.2fm in %.1fs) - back-up + skip wp %d.",
+                            d_moved, now - stuck_anchor_t, follower.index)
+                recovery_until = now + 0.5
+                follower.advance()
+                stuck_anchor_pose = (x, y)
+                stuck_anchor_t = now
+
+            if now < recovery_until:
+                # Back-up: ambele roti negativ, viteza moderata
+                robot.set_velocity(-2.0, -2.0)
+            else:
+                v_l, v_r = follower.step(x, y, yaw)
+                robot.set_velocity(v_l, v_r)
 
             if on_progress is not None and (now - last_progress) >= 0.5:
                 on_progress(follower.index, len(waypoints_world), (x, y, yaw))

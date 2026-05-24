@@ -32,3 +32,40 @@ def connect(host: str = COPPELIA_HOST, port: int = COPPELIA_PORT):
         ) from e
 
     return client, sim
+
+
+def ensure_simulation_running(sim, timeout_s: float = 3.0,
+                              poll_dt: float = 0.05) -> bool:
+    """Asigura ca simularea CoppeliaSim este in stare `advancing_running`.
+
+    Daca sim este oprita, o porneste; daca este in paused/first-after-stop,
+    asteapta sa devina running pana la `timeout_s`. Necesar inainte de a trimite
+    comenzi `setJointTargetVelocity`, altfel comenzile sunt ignorate / robotul
+    nu se misca pana la primul tick efectiv.
+
+    Returns:
+        True daca am ajuns la `advancing_running`, False la timeout.
+    """
+    import time
+
+    try:
+        state = sim.getSimulationState()
+    except Exception:
+        return False
+
+    if state == sim.simulation_stopped:
+        try:
+            sim.startSimulation()
+        except Exception:
+            return False
+
+    deadline = time.perf_counter() + timeout_s
+    while time.perf_counter() < deadline:
+        try:
+            state = sim.getSimulationState()
+        except Exception:
+            return False
+        if state == sim.simulation_advancing_running:
+            return True
+        time.sleep(poll_dt)
+    return False

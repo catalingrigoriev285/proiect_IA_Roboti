@@ -289,15 +289,14 @@ class AlgorithmTab(QWidget):
             from nav_robot.controller.runner import (
                 path_cells_to_world, run_path_in_coppelia,
             )
-            from nav_robot.coppelia.client import connect
+            from nav_robot.coppelia.client import connect, ensure_simulation_running
             from nav_robot.coppelia.robot import PioneerP3DX
             _, sim = connect()
             robot = PioneerP3DX(sim)
-            # Asigura simularea pornita; daca nu, robotul nu va misca
-            sim_state = sim.getSimulationState()
-            if sim_state == sim.simulation_stopped:
-                sim.startSimulation()
-                log.info("simulationState=stopped -> am pornit simularea.")
+            if not ensure_simulation_running(sim):
+                log.warning("Simularea nu a ajuns in stare 'running' in 3s.")
+            else:
+                log.info("Simularea CoppeliaSim ruleaza.")
 
             waypoints = path_cells_to_world(grid, path)
 
@@ -357,15 +356,13 @@ class AlgorithmTab(QWidget):
         self.btn_run.setEnabled(False)
 
         def task():
-            from nav_robot.coppelia.client import connect
+            from nav_robot.coppelia.client import connect, ensure_simulation_running
             from nav_robot.coppelia.robot import PioneerP3DX
             from nav_robot.reactive.bug2 import bug2_navigate
             _, sim = connect()
             robot = PioneerP3DX(sim)
-            sim_state = sim.getSimulationState()
-            if sim_state == sim.simulation_stopped:
-                sim.startSimulation()
-                log.info("simulationState=stopped -> am pornit simularea.")
+            if not ensure_simulation_running(sim):
+                log.warning("Simularea nu a ajuns in stare 'running' in 3s.")
             goal_world = grid.to_world(grid.goal)
 
             def progress(state, pose, dist):

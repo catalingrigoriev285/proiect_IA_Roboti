@@ -99,13 +99,15 @@ class MapTab(QWidget):
         self.btn_load = QPushButton("Incarca JSON existent...")
         self.btn_build_scene = QPushButton("3. Trimite in CoppeliaSim")
         self.btn_clear_scene = QPushButton("Curata scena (sterge MapObstacles)")
+        self.btn_reset_robot = QPushButton("Reseteaza robot la start")
         self.btn_generate.clicked.connect(self._on_generate)
         self.btn_save.clicked.connect(self._on_save)
         self.btn_load.clicked.connect(self._on_load)
         self.btn_build_scene.clicked.connect(self._on_build_scene)
         self.btn_clear_scene.clicked.connect(self._on_clear_scene)
+        self.btn_reset_robot.clicked.connect(self._on_reset_robot)
         for b in (self.btn_generate, self.btn_save, self.btn_load,
-                  self.btn_build_scene, self.btn_clear_scene):
+                  self.btn_build_scene, self.btn_clear_scene, self.btn_reset_robot):
             v_a.addWidget(b)
 
         self.lbl_status = QLabel("Niciuna generata.")
@@ -237,6 +239,42 @@ class MapTab(QWidget):
         def fail(err):
             self.btn_build_scene.setEnabled(True)
             log.error("Build scena esuat: %s", err)
+            QMessageBox.critical(self, "Eroare CoppeliaSim", err)
+
+        self._thread, self._worker = run_async(self, task, on_done=done, on_fail=fail)
+
+    def _on_reset_robot(self) -> None:
+        if self.current_grid is None:
+            QMessageBox.warning(self, "Nicio harta",
+                                "Genereaza intai o harta cu un start definit.")
+            return
+        grid = self.current_grid
+        log.info("Reset robot la start=%s ...", grid.start)
+        self.btn_reset_robot.setEnabled(False)
+
+        def task():
+            from nav_robot.coppelia.client import connect
+            from nav_robot.coppelia.scene_builder import reset_robot_to_start
+            _, sim = connect()
+            return reset_robot_to_start(sim, grid)
+
+        def done(info):
+            self.btn_reset_robot.setEnabled(True)
+            sx, sy, _ = info["position"]
+            msg = f"Robot resetat la ({sx:.2f}, {sy:.2f})."
+            if info["was_running"]:
+                msg += " Sim oprita, repozitionata"
+                if info["restarted"]:
+                    msg += " si repornita."
+                else:
+                    msg += "; reporneste manual cu Play."
+            else:
+                msg += " (Sim era oprita - apasa Play in CoppeliaSim.)"
+            log.info(msg)
+
+        def fail(err):
+            self.btn_reset_robot.setEnabled(True)
+            log.error("Reset robot esuat: %s", err)
             QMessageBox.critical(self, "Eroare CoppeliaSim", err)
 
         self._thread, self._worker = run_async(self, task, on_done=done, on_fail=fail)

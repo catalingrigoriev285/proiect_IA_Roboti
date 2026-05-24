@@ -94,6 +94,71 @@ def place_robot_at_start(sim, grid: GridMap, robot_path: str = "/PioneerP3DX",
     sim.setObjectOrientation(robot, [0.0, 0.0, 0.0], sim.handle_world)
 
 
+def reset_robot_to_start(sim, grid: GridMap, robot_path: str = "/PioneerP3DX",
+                         z_m: float = 0.139, restart_sim: bool = True) -> dict:
+    """Opreste robotul, opreste simularea, repozitioneaza la `start` si reporneste.
+
+    Necesar intre rulari de algoritmi: daca robotul a derapat sau a ramas blocat,
+    apasarea acestui buton il aduce inapoi in pozitia initiala.
+
+    Args:
+        sim: API CoppeliaSim.
+        grid: harta sursa (foloseste grid.start).
+        robot_path: calea ierarhica a robotului.
+        z_m: inaltimea pe Z.
+        restart_sim: daca True, reporneste simularea dupa repozitionare.
+
+    Returns:
+        dict cu cheile: 'was_running' (bool), 'restarted' (bool), 'position' (tuple).
+    """
+    import time as _time
+
+    was_running = False
+    try:
+        state = sim.getSimulationState()
+        was_running = state != sim.simulation_stopped
+    except Exception:
+        pass
+
+    # Opreste motoarele inainte de orice
+    try:
+        left = sim.getObject(f"{robot_path}/leftMotor")
+        right = sim.getObject(f"{robot_path}/rightMotor")
+        sim.setJointTargetVelocity(left, 0.0)
+        sim.setJointTargetVelocity(right, 0.0)
+    except Exception:
+        pass
+
+    # Opreste simularea ca sa putem repozitiona "curat" (fara fizica activa)
+    if was_running:
+        try:
+            sim.stopSimulation()
+        except Exception:
+            pass
+        # Asteptare pana la stopped
+        for _ in range(50):
+            try:
+                if sim.getSimulationState() == sim.simulation_stopped:
+                    break
+            except Exception:
+                break
+            _time.sleep(0.05)
+
+    place_robot_at_start(sim, grid, robot_path=robot_path, z_m=z_m)
+
+    restarted = False
+    if restart_sim and was_running:
+        try:
+            sim.startSimulation()
+            restarted = True
+        except Exception:
+            pass
+
+    sx, sy = grid.to_world(grid.start)
+    return {"was_running": was_running, "restarted": restarted,
+            "position": (sx, sy, z_m)}
+
+
 def clear_obstacles_by_alias(sim, parent_alias: str = DEFAULT_PARENT_ALIAS) -> int:
     """Sterge orice dummy + copii cu alias-ul dat. Returneaza numarul de obiecte sterse."""
     try:

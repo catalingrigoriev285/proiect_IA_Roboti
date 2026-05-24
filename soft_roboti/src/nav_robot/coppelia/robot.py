@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+
 from nav_robot.config import SENSOR_COUNT
+
+log = logging.getLogger("coppelia.robot")
 
 
 class PioneerP3DX:
@@ -12,9 +16,14 @@ class PioneerP3DX:
     Atribute populate de constructor:
         robot, left_motor, right_motor: handle-uri obiecte (int).
         sensors: lista de 16 handle-uri de senzori ultrasonici.
+
+    IMPORTANT: modelul oficial Pioneer P3-DX din CoppeliaSim contine un child script
+    care evita-obstacole care suprascrie `setJointTargetVelocity` la fiecare frame.
+    Pentru a putea comanda robotul din Python, dezactivam acel script la init.
     """
 
-    def __init__(self, sim, base_path: str = "/PioneerP3DX") -> None:
+    def __init__(self, sim, base_path: str = "/PioneerP3DX",
+                 disable_child_script: bool = True) -> None:
         self.sim = sim
         self.base_path = base_path
         self.robot: int = sim.getObject(base_path)
@@ -24,6 +33,36 @@ class PioneerP3DX:
             sim.getObject(f"{base_path}/ultrasonicSensor[{i}]")
             for i in range(SENSOR_COUNT)
         ]
+        if disable_child_script:
+            self._disable_builtin_scripts()
+
+    def _disable_builtin_scripts(self) -> None:
+        """Dezactiveaza child script-ul builtin (evita-obstacole) al modelului Pioneer.
+
+        Daca scriptul ramane activ, va suprascrie comenzile noastre la fiecare pas
+        de simulare si robotul fie nu se misca dupa planul nostru, fie are
+        comportament neasteptat (rotire, oprire la perete).
+        """
+        sim = self.sim
+        # Incercam toate tipurile de script atasate robotului (child + customization)
+        for script_type_attr in ("scripttype_simulation", "scripttype_childscript",
+                                  "scripttype_customizationscript"):
+            stype = getattr(sim, script_type_attr, None)
+            if stype is None:
+                continue
+            try:
+                script_handle = sim.getScript(stype, self.robot)
+            except Exception:
+                continue
+            if script_handle is None or script_handle == -1:
+                continue
+            try:
+                sim.setScriptInt32Param(script_handle,
+                                        sim.scriptintparam_enabled, 0)
+                log.info("Dezactivat script %s pe %s (handle=%d).",
+                         script_type_attr, self.base_path, script_handle)
+            except Exception as e:
+                log.debug("Nu am putut dezactiva %s: %s", script_type_attr, e)
 
     # ------------------------------------------------------------------
     # Motoare
