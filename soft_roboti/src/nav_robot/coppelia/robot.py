@@ -88,48 +88,57 @@ class PioneerP3DX:
                              type_name: str) -> bool:
         """Incearca sa dezactiveze un script handle prin lant de metode.
 
-        Returneaza True daca o metoda a reusit (sau pare ca a reusit).
+        Pentru fiecare metoda, raporteaza ce a incercat in log.debug; doar in
+        caz de SUCCES verificat se ridica la log.info.
+
+        Returneaza True daca o metoda a reusit cu verificare.
         """
         sim = self.sim
 
-        # 1. API nou (CoppeliaSim 4.6+ / 4.10): properties
-        try:
-            sim.setBoolProperty(script_h, "enabled", False)
+        # 1. setBoolProperty pe diferite nume de property cunoscute in 4.10
+        for prop_name in ("enabled", "scriptEnabled", "scriptState"):
+            try:
+                sim.setBoolProperty(script_h, prop_name, False)
+            except Exception as e:
+                log.debug("setBoolProperty(%r, False) esuat pe script_h=%d: %s",
+                          prop_name, script_h, e)
+                continue
             # Verifica prin citire
             try:
-                still_enabled = sim.getBoolProperty(script_h, "enabled")
-                if not still_enabled:
-                    log.info("Script %s DEZACTIVAT via setBoolProperty pe obj=%d "
-                             "(script_h=%d).", type_name, obj_h, script_h)
+                v = sim.getBoolProperty(script_h, prop_name)
+                if v is False:
+                    log.info("Script %s DEZACTIVAT via setBoolProperty(%r) pe "
+                             "obj=%d (script_h=%d).",
+                             type_name, prop_name, obj_h, script_h)
                     return True
-                log.debug("setBoolProperty('enabled', False) pe obj=%d a rulat dar "
-                          "flag-ul a ramas True.", obj_h)
+                log.debug("setBoolProperty(%r) ruleaza dar valoarea ramane %r.",
+                          prop_name, v)
             except Exception as e:
                 # Nu putem verifica - presupunem ca a mers
-                log.info("Script %s DEZACTIVAT via setBoolProperty (neverificat) "
-                         "pe obj=%d (script_h=%d).", type_name, obj_h, script_h)
+                log.info("Script %s DEZACTIVAT via setBoolProperty(%r) (neverificat) "
+                         "pe obj=%d.", type_name, prop_name, obj_h)
                 log.debug("getBoolProperty esuat: %s", e)
                 return True
-        except Exception as e:
-            log.debug("setBoolProperty esuat pe obj=%d: %s", obj_h, e)
 
-        # 2. Fallback: removeScript (elimina complet)
+        # 2. removeScript (elimina complet)
         try:
             sim.removeScript(script_h)
-            log.info("Script %s REMOVE pe obj=%d (script_h=%d).",
+            log.info("Script %s ELIMINAT (removeScript) pe obj=%d (script_h=%d).",
                      type_name, obj_h, script_h)
             return True
         except Exception as e:
-            log.debug("removeScript esuat pe obj=%d: %s", obj_h, e)
+            log.debug("removeScript esuat pe script_h=%d: %s", script_h, e)
 
-        # 3. Fallback legacy (CoppeliaSim < 4.6)
+        # 3. Legacy API (CoppeliaSim < 4.6) — emite warning deprecated in 4.10 si
+        # NU produce efect. Doar logam tentativa pentru completitudine.
         try:
             sim.setScriptInt32Param(script_h, sim.scriptintparam_enabled, 0)
-            log.info("Script %s dezactivat via API legacy pe obj=%d (script_h=%d).",
-                     type_name, obj_h, script_h)
-            return True
+            log.warning("Script %s: doar API legacy a rulat (probabil fara efect "
+                        "in CoppeliaSim 4.10). Foloseste tabul Debug pentru "
+                        "diagnoza detaliata.", type_name)
+            return False  # NU consideram succes - in 4.10 e no-op
         except Exception as e:
-            log.debug("setScriptInt32Param esuat pe obj=%d: %s", obj_h, e)
+            log.debug("setScriptInt32Param esuat pe script_h=%d: %s", script_h, e)
 
         return False
 
