@@ -29,8 +29,8 @@ PLANNERS_LABEL = {
 }
 
 REACTIVE_LABEL = {
-    "Bug2 (fara harta, tinta cunoscuta) [stub faza 4]": "bug2",
-    "Wall-following pur (lab 06) [stub faza 4]": "wall",
+    "Bug2 (fara harta, tinta cunoscuta)": "bug2",
+    "Politica RL antrenata (din tab-ul RL)": "rl_policy",
 }
 
 
@@ -43,6 +43,7 @@ class AlgorithmTab(QWidget):
         self.last_result: PlanResult | None = None
         self._thread = None
         self._worker = None
+        self._stop_requested = False
         self._build_ui()
         self._on_mode_changed(True)
 
@@ -112,11 +113,13 @@ class AlgorithmTab(QWidget):
         v_act = QVBoxLayout(gb_actions)
         self.btn_plan = QPushButton("1. Planifica traseu")
         self.btn_compare = QPushButton("Compara toti algoritmii")
-        self.btn_run = QPushButton("2. Ruleaza in CoppeliaSim [stub]")
+        self.btn_run = QPushButton("2. Ruleaza in CoppeliaSim")
+        self.btn_stop = QPushButton("Stop")
         self.btn_plan.clicked.connect(self._on_plan)
         self.btn_compare.clicked.connect(self._on_compare)
         self.btn_run.clicked.connect(self._on_run)
-        for b in (self.btn_plan, self.btn_compare, self.btn_run):
+        self.btn_stop.clicked.connect(self._on_stop)
+        for b in (self.btn_plan, self.btn_compare, self.btn_run, self.btn_stop):
             v_act.addWidget(b)
 
         v.addWidget(gb_mode)
@@ -155,14 +158,14 @@ class AlgorithmTab(QWidget):
     # ------------------------------------------------------------------
     def _on_mode_changed(self, checked: bool) -> None:
         self.cb_algo.clear()
-        if self.rb_with.isChecked():
+        with_map = self.rb_with.isChecked()
+        if with_map:
             self.cb_algo.addItems(list(PLANNERS_LABEL.keys()))
-            self.btn_plan.setEnabled(True)
-            self.btn_compare.setEnabled(True)
         else:
             self.cb_algo.addItems(list(REACTIVE_LABEL.keys()))
-            self.btn_plan.setEnabled(False)
-            self.btn_compare.setEnabled(False)
+        self.btn_plan.setEnabled(with_map)
+        self.btn_compare.setEnabled(with_map)
+        # Run-ul ramane mereu activ - executa fie un plan, fie Bug2 reactiv.
 
     def _selected_algo_id(self) -> str:
         label = self.cb_algo.currentText()
@@ -260,13 +263,138 @@ class AlgorithmTab(QWidget):
         self._thread, self._worker = run_async(self, task, on_done=done, on_fail=fail)
 
     def _on_run(self) -> None:
+        grid = self.map_tab.current_grid
+        if grid is None:
+            QMessageBox.warning(self, "Nicio harta",
+                                "Genereaza intai o harta in tab-ul Generare harta.")
+            return
+
+        if not self.rb_with.isChecked():
+            self._run_blind(grid)
+            return
+
+        if self.last_result is None or self.last_result.path is None:
+            QMessageBox.warning(
+                self, "Nicio planificare",
+                "Apasa intai 'Planifica traseu'. Robotul are nevoie de waypoint-uri.",
+            )
+            return
+
+        path = self.last_result.path
+        log.info("Pornesc executia traseului (%d waypoints) in CoppeliaSim.", len(path))
+        self._stop_requested = False
+        self.btn_run.setEnabled(False)
+
+        def task():
+            from nav_robot.controller.runner import (
+                path_cells_to_world, run_path_in_coppelia,
+            )
+            from nav_robot.coppelia.client import connect
+            from nav_robot.coppelia.robot import PioneerP3DX
+            _, sim = connect()
+            robot = PioneerP3DX(sim)
+            # Asigura simularea pornita; daca nu, robotul nu va misca
+            sim_state = sim.getSimulationState()
+            if sim_state == sim.simulation_stopped:
+                sim.startSimulation()
+                log.info("simulationState=stopped -> am pornit simularea.")
+
+            waypoints = path_cells_to_world(grid, path)
+
+            def progress(idx, total, pose):
+                log.info("Waypoint %d/%d  pose=(%.2f, %.2f, yaw=%.2f rad)",
+                         idx, total, *pose)
+
+            return run_path_in_coppelia(
+                sim, robot, waypoints,
+                should_stop=lambda: self._stop_requested,
+                on_progress=progress,
+            )
+
+        def done(report):
+            self.btn_run.setEnabled(True)
+            if report.success:
+                log.info("Traseu COMPLETAT in %.2fs (%d/%d waypoints).",
+                         report.elapsed_s, report.waypoints_reached,
+                         report.waypoints_total)
+            elif report.aborted:
+                log.warning("Traseu ABORTAT (%d/%d waypoints, %.2fs).",
+                            report.waypoints_reached, report.waypoints_total,
+                            report.elapsed_s)
+            else:
+                log.warning("Traseu NEINCHEIAT (timeout).")
+
+        def fail(err):
+            self.btn_run.setEnabled(True)
+            log.error("Executie esuata: %s", err)
+            QMessageBox.critical(self, "Eroare executie", err)
+
+        self._thread, self._worker = run_async(self, task, on_done=done, on_fail=fail)
+
+    def _on_stop(self) -> None:
+        self._stop_requested = True
+        log.info("Stop solicitat - astept iesirea din bucla de control...")
+
+    def _run_blind(self, grid) -> None:
+        """Ruleaza navigare fara harta (Bug2 sau politica RL)."""
         algo_id = self._selected_algo_id()
-        log.warning("Run CoppeliaSim cu '%s' - inca neimplementat (faza 3).", algo_id)
-        QMessageBox.information(
-            self, "Stub",
-            "Executia in CoppeliaSim (urmarire waypoint-uri) este planificata "
-            "pentru faza 3. Acum poti vedea traseul planificat in preview.",
-        )
+        if algo_id == "rl_policy":
+            QMessageBox.information(
+                self, "Politica RL nedisponibila",
+                "Antreneaza intai o politica in tab-ul Reinforcement Learning, "
+                "apoi foloseste butonul 'Run in CoppeliaSim' de acolo.",
+            )
+            return
+
+        if algo_id != "bug2":
+            QMessageBox.warning(self, "Algoritm necunoscut",
+                                f"Modul reactiv pentru '{algo_id}' nu este implementat.")
+            return
+
+        log.info("Pornesc Bug2 fara harta. Goal=%s (din celula goal a hartii).",
+                 grid.to_world(grid.goal))
+        self._stop_requested = False
+        self.btn_run.setEnabled(False)
+
+        def task():
+            from nav_robot.coppelia.client import connect
+            from nav_robot.coppelia.robot import PioneerP3DX
+            from nav_robot.reactive.bug2 import bug2_navigate
+            _, sim = connect()
+            robot = PioneerP3DX(sim)
+            sim_state = sim.getSimulationState()
+            if sim_state == sim.simulation_stopped:
+                sim.startSimulation()
+                log.info("simulationState=stopped -> am pornit simularea.")
+            goal_world = grid.to_world(grid.goal)
+
+            def progress(state, pose, dist):
+                log.info("[%s] pose=(%.2f, %.2f, %.2f rad)  dist_goal=%.2f m",
+                         state, pose[0], pose[1], pose[2], dist)
+
+            return bug2_navigate(
+                sim, robot, goal_world,
+                should_stop=lambda: self._stop_requested,
+                on_progress=progress,
+            )
+
+        def done(report):
+            self.btn_run.setEnabled(True)
+            if report.success:
+                log.info("Bug2 SUCCES in %.2fs (%d pasi). Dist final=%.2fm.",
+                         report.elapsed_s, report.steps, report.final_distance_to_goal)
+            elif report.aborted:
+                log.warning("Bug2 ABORTAT (%d pasi, %.2fs).", report.steps,
+                            report.elapsed_s)
+            else:
+                log.warning("Bug2 NEINCHEIAT - timeout (%.2fs).", report.elapsed_s)
+
+        def fail(err):
+            self.btn_run.setEnabled(True)
+            log.error("Bug2 esuat: %s", err)
+            QMessageBox.critical(self, "Eroare Bug2", err)
+
+        self._thread, self._worker = run_async(self, task, on_done=done, on_fail=fail)
 
     # ------------------------------------------------------------------
     # Display
