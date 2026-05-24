@@ -84,9 +84,12 @@ def _cmd_build_scene(args: argparse.Namespace) -> int:
         return 0
 
     parent, handles = build_obstacles_from_map(
-        sim, grid, height_m=args.obstacle_height,
+        sim, grid,
+        height_m=args.obstacle_height,
+        with_floor=not args.no_floor,
     )
-    print(f"[OK] Plasati {len(handles)} cuboizi sub dummy-ul 'MapObstacles' (handle={parent}).")
+    floor_str = " + floor" if not args.no_floor else ""
+    print(f"[OK] Plasati {len(handles)} obiecte{floor_str} sub dummy-ul 'MapObstacles' (handle={parent}).")
 
     if args.place_robot:
         try:
@@ -96,6 +99,16 @@ def _cmd_build_scene(args: argparse.Namespace) -> int:
             print(f"[WARN] Nu am putut muta robotul: {e}")
 
     return 0
+
+
+def _cmd_gui(_args: argparse.Namespace) -> int:
+    try:
+        from nav_robot.gui.app import main as gui_main
+    except ImportError as e:
+        print(f"[ERR] Nu pot porni GUI: {e}\n      Ruleaza: pip install PySide6",
+              file=sys.stderr)
+        return 3
+    return gui_main([])
 
 
 def _cmd_not_implemented(name: str) -> int:
@@ -143,11 +156,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_bs.add_argument("--obstacles", type=float, default=DEFAULT_OBSTACLE_RATIO)
     p_bs.add_argument("--obstacle-height", type=float, default=0.5,
                       help="Inaltimea cuboizilor in metri (default 0.5).")
+    p_bs.add_argument("--no-floor", action="store_true",
+                      help="Nu crea floor sub harta (default: creeaza un floor static).")
     p_bs.add_argument("--place-robot", action="store_true",
                       help="Muta robotul Pioneer in celula start a hartii.")
     p_bs.add_argument("--clear-only", action="store_true",
                       help="Sterge obstacolele anterioare fara sa creeze altele noi.")
     p_bs.set_defaults(func=_cmd_build_scene)
+
+    # --- gui ---
+    p_gui = sub.add_parser("gui", help="Lanseaza interfata grafica PySide6.")
+    p_gui.set_defaults(func=_cmd_gui)
 
     # --- stub-uri ---
     for name, helptxt in [

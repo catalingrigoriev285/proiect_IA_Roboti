@@ -16,8 +16,12 @@ def build_obstacles_from_map(
     parent_alias: str = DEFAULT_PARENT_ALIAS,
     color: tuple[float, float, float] = (0.3, 0.3, 0.35),
     clear_existing: bool = True,
+    with_floor: bool = True,
+    floor_margin_m: float = 1.0,
+    floor_thickness_m: float = 0.05,
+    floor_color: tuple[float, float, float] = (0.85, 0.85, 0.85),
 ) -> tuple[int, list[int]]:
-    """Plaseaza cate un cuboid in scena pentru fiecare celula obstacol.
+    """Plaseaza cate un cuboid in scena pentru fiecare celula obstacol + (optional) un floor.
 
     Cuboizii sunt grupati sub un dummy comun cu alias-ul `parent_alias` pentru a putea
     fi stersi rapid intre rulari (`clear_existing=True`).
@@ -29,9 +33,13 @@ def build_obstacles_from_map(
         parent_alias: numele dummy-ului parinte.
         color: culoarea RGB a cuboizilor (0..1).
         clear_existing: daca True, sterge orice ierarhie anterioara cu acelasi alias.
+        with_floor: daca True, creeaza si un floor static dimensionat sa acopere harta.
+        floor_margin_m: cati metri in plus pe fiecare parte fata de harta.
+        floor_thickness_m: grosimea floor-ului (Z negativ, top la z=0).
+        floor_color: culoarea RGB a floor-ului.
 
     Returns:
-        (parent_handle, lista de handle-uri ale cuboizilor)
+        (parent_handle, lista de handle-uri ale obiectelor create - floor + cuboizi)
     """
     if clear_existing:
         clear_obstacles_by_alias(sim, parent_alias)
@@ -42,6 +50,19 @@ def build_obstacles_from_map(
 
     cs = grid.cell_size
     handles: list[int] = []
+
+    if with_floor:
+        world_w, world_h = grid.world_size()
+        floor_sx = world_w + 2 * floor_margin_m
+        floor_sy = world_h + 2 * floor_margin_m
+        floor = _create_static_cuboid(sim, [floor_sx, floor_sy, floor_thickness_m],
+                                      floor_color)
+        # Centrat pe mijlocul hartii, cu top-ul la z = 0
+        cx, cy = world_w / 2.0, world_h / 2.0
+        sim.setObjectPosition(floor, [cx, cy, -floor_thickness_m / 2.0], sim.handle_world)
+        sim.setObjectAlias(floor, "MapFloor")
+        sim.setObjectParent(floor, parent, True)
+        handles.append(floor)
 
     for y in range(grid.height):
         for x in range(grid.width):

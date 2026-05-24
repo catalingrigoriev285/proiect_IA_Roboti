@@ -1,5 +1,6 @@
 numpy>=1.24
 matplotlib>=3.7
 coppeliasim-zmqremoteapi-client>=1.0.0
+PySide6>=6.5
 # Dev:
 # pytest>=7.0
