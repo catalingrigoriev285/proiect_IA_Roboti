@@ -1,7 +1,8 @@
 """Entry-point CLI pentru nav_robot.
 
-Subcomenzi disponibile (faza 1):
-    generate    - genereaza o harta aleatoare seed-based si optional o salveaza/afiseaza.
+Subcomenzi disponibile:
+    generate     - genereaza o harta aleatoare seed-based si optional o salveaza/afiseaza.
+    build-scene  - construieste obstacolele din harta in scena CoppeliaSim deschisa.
 
 Subcomenzi planificate (stub):
     plan        - calculeaza un traseu pe o harta salvata.
@@ -57,6 +58,46 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_build_scene(args: argparse.Namespace) -> int:
+    if args.map:
+        grid = GridMap.load(args.map)
+        print(f"[..] Harta incarcata din {args.map} (seed={grid.seed}).")
+    else:
+        grid = generate_random_map(
+            width=args.width, height=args.height,
+            obstacle_ratio=args.obstacles, seed=args.seed,
+        )
+        print(f"[..] Harta generata in memorie (seed={args.seed}).")
+
+    from nav_robot.coppelia.client import connect
+    from nav_robot.coppelia.scene_builder import (
+        build_obstacles_from_map, clear_obstacles_by_alias, place_robot_at_start,
+    )
+
+    print(f"[..] Conectare la CoppeliaSim ...")
+    _, sim = connect()
+    print(f"[OK] Conectat.")
+
+    if args.clear_only:
+        n = clear_obstacles_by_alias(sim)
+        print(f"[OK] Sterse {n} obiecte din ierarhia 'MapObstacles'.")
+        return 0
+
+    parent, handles = build_obstacles_from_map(
+        sim, grid, height_m=args.obstacle_height,
+    )
+    print(f"[OK] Plasati {len(handles)} cuboizi sub dummy-ul 'MapObstacles' (handle={parent}).")
+
+    if args.place_robot:
+        try:
+            place_robot_at_start(sim, grid)
+            print(f"[OK] Robot mutat in start={grid.start} world={grid.to_world(grid.start)}.")
+        except Exception as e:
+            print(f"[WARN] Nu am putut muta robotul: {e}")
+
+    return 0
+
+
 def _cmd_not_implemented(name: str) -> int:
     print(f"[STUB] Subcomanda '{name}' nu este implementata in faza 1.", file=sys.stderr)
     print("       Va fi disponibila in fazele 2-5 (vezi README.md).", file=sys.stderr)
@@ -87,6 +128,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_gen.add_argument("--show", action="store_true",
                        help="Deschide fereastra matplotlib (necesita --plot).")
     p_gen.set_defaults(func=_cmd_generate)
+
+    # --- build-scene ---
+    p_bs = sub.add_parser(
+        "build-scene",
+        help="Construieste obstacolele din harta in scena CoppeliaSim deschisa.",
+    )
+    p_bs.add_argument("--map", type=str, default=None,
+                      help="Cale JSON de harta. Daca lipseste, genereaza una nou cu --seed.")
+    p_bs.add_argument("--seed", type=int, default=DEFAULT_SEED,
+                      help="Seed pentru generare in memorie (folosit doar daca --map lipseste).")
+    p_bs.add_argument("--width", type=int, default=DEFAULT_GRID_W)
+    p_bs.add_argument("--height", type=int, default=DEFAULT_GRID_H)
+    p_bs.add_argument("--obstacles", type=float, default=DEFAULT_OBSTACLE_RATIO)
+    p_bs.add_argument("--obstacle-height", type=float, default=0.5,
+                      help="Inaltimea cuboizilor in metri (default 0.5).")
+    p_bs.add_argument("--place-robot", action="store_true",
+                      help="Muta robotul Pioneer in celula start a hartii.")
+    p_bs.add_argument("--clear-only", action="store_true",
+                      help="Sterge obstacolele anterioare fara sa creeze altele noi.")
+    p_bs.set_defaults(func=_cmd_build_scene)
 
     # --- stub-uri ---
     for name, helptxt in [

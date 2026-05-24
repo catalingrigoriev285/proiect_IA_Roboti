@@ -1,4 +1,4 @@
-"""Conexiune ZMQ Remote API catre CoppeliaSim (faza 3 - stub)."""
+"""Conexiune ZMQ Remote API catre CoppeliaSim."""
 
 from __future__ import annotations
 
@@ -10,9 +10,25 @@ def connect(host: str = COPPELIA_HOST, port: int = COPPELIA_PORT):
 
     Returns:
         Tuplu (client, sim) - obiectele expuse de coppeliasim_zmqremoteapi_client.
+
+    Raises:
+        ConnectionError: daca CoppeliaSim nu este deschis sau portul nu raspunde.
     """
-    raise NotImplementedError(
-        "connect - TODO faza 3: from coppeliasim_zmqremoteapi_client import RemoteAPIClient; "
-        "client = RemoteAPIClient(host, port); return client, client.require('sim'). "
-        "(Vezi lab 06 cerinta 3.1.)"
-    )
+    try:
+        from coppeliasim_zmqremoteapi_client import RemoteAPIClient
+    except ImportError as e:
+        raise ImportError(
+            "Pachetul 'coppeliasim-zmqremoteapi-client' nu este instalat. "
+            "Ruleaza: pip install coppeliasim-zmqremoteapi-client"
+        ) from e
+
+    try:
+        client = RemoteAPIClient(host, port)
+        sim = client.require("sim")
+    except Exception as e:
+        raise ConnectionError(
+            f"Nu pot conecta la CoppeliaSim ({host}:{port}). "
+            "Verifica ca aplicatia este deschisa si scena este incarcata."
+        ) from e
+
+    return client, sim

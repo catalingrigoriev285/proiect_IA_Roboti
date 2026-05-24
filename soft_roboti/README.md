@@ -48,7 +48,25 @@ python -m nav_robot.cli generate --seed 42 --width 20 --height 20 --obstacles 0.
 Genereaza o harta 20x20 cu 25% obstacole, o salveaza in `data/maps/m42.json`
 si produce `outputs/map_seed42.png`. Aceeasi valoare a `--seed` produce mereu aceeasi harta.
 
-### Subcomenzi viitoare (stub-uri in faza 1)
+### Trimite harta in CoppeliaSim (functional)
+
+Necesita CoppeliaSim deschis cu scena ce contine Pioneer P3-DX (de ex.
+`scenes/pioneer_nav.ttt`) si serverul ZMQ activ pe portul 23000.
+
+```powershell
+python -m nav_robot.cli build-scene --map data/maps/m42.json --place-robot
+```
+
+Creeaza in scena cate un cuboid (0.5 x 0.5 x 0.5 m) pentru fiecare celula
+de obstacol din harta, gruparea sub dummy-ul `MapObstacles`. La urmatoarea
+rulare obstacolele anterioare sunt sterse automat.
+
+Pentru a goli scena fara a regenera:
+```powershell
+python -m nav_robot.cli build-scene --clear-only
+```
+
+### Subcomenzi viitoare (stub-uri)
 
 ```powershell
 python -m nav_robot.cli plan    --map data/maps/m42.json --algo astar
@@ -67,7 +85,9 @@ python -m nav_robot.cli compare --map data/maps/m42.json
 | config.py                   | functional            |
 | planners/*                  | stub (faza 2)         |
 | reactive/*                  | stub (faza 4)         |
-| coppelia/*                  | stub (faza 3)         |
+| coppelia/client.py          | functional            |
+| coppelia/scene_builder.py   | functional            |
+| coppelia/robot.py, sensors.py | stub (faza 3)       |
 | controller/*                | stub (faza 3)         |
 
 ## Roadmap
