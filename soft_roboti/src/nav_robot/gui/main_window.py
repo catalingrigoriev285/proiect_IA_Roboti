@@ -9,7 +9,6 @@ from PySide6.QtWidgets import QMainWindow, QSplitter, QStatusBar, QTabWidget, QW
 
 from nav_robot.gui.log_widget import LogWidget
 from nav_robot.gui.tabs.algorithm_tab import AlgorithmTab
-from nav_robot.gui.tabs.debug_tab import DebugTab
 from nav_robot.gui.tabs.live_tab import LiveTab
 from nav_robot.gui.tabs.map_tab import MapTab
 from nav_robot.gui.tabs.rl_tab import RLTab
@@ -53,13 +52,11 @@ class MainWindow(QMainWindow):
         self.tab_algo = AlgorithmTab(map_tab=self.tab_map, parent=self)
         self.tab_rl = RLTab(map_tab=self.tab_map, parent=self)
         self.tab_live = LiveTab(map_tab=self.tab_map, algo_tab=self.tab_algo, parent=self)
-        self.tab_debug = DebugTab(self)
 
         self.tabs.addTab(self.tab_map, "1. Generare harta")
         self.tabs.addTab(self.tab_algo, "2. Algoritmi")
         self.tabs.addTab(self.tab_rl, "3. Reinforcement Learning")
         self.tabs.addTab(self.tab_live, "4. Live monitor")
-        self.tabs.addTab(self.tab_debug, "5. Debug")
 
         # --- Log jos ---
         self.log_widget = LogWidget(self)
